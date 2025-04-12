@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Card, 
   CardContent, 
@@ -29,8 +29,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle,
-  DialogTrigger
+  DialogTitle
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -56,125 +55,54 @@ import {
   Plus,
   PieChart,
   Calendar,
-  Download
+  Download,
+  Loader2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { generateUniqueId } from '@/lib/utils';
-import { toast } from 'sonner';
-
-// Mock de transações financeiras
-const mockTransacoes = [
-  {
-    id: '1',
-    tipo: 'receita',
-    categoria: 'Serviço',
-    descricao: 'OS #123 - Troca de Óleo',
-    valor: 150.00,
-    data: new Date('2023-04-10')
-  },
-  {
-    id: '2',
-    tipo: 'receita',
-    categoria: 'Serviço',
-    descricao: 'OS #124 - Revisão Completa',
-    valor: 350.00,
-    data: new Date('2023-04-09')
-  },
-  {
-    id: '3',
-    tipo: 'despesa',
-    categoria: 'Fornecedor',
-    descricao: 'Compra de peças - Auto Parts LTDA',
-    valor: 500.00,
-    data: new Date('2023-04-08')
-  },
-  {
-    id: '4',
-    tipo: 'receita',
-    categoria: 'Serviço',
-    descricao: 'OS #125 - Troca de Pastilhas de Freio',
-    valor: 220.00,
-    data: new Date('2023-04-08')
-  },
-  {
-    id: '5',
-    tipo: 'despesa',
-    categoria: 'Funcionários',
-    descricao: 'Pagamento de salários',
-    valor: 3500.00,
-    data: new Date('2023-04-05')
-  },
-  {
-    id: '6',
-    tipo: 'despesa',
-    categoria: 'Aluguel',
-    descricao: 'Aluguel do mês',
-    valor: 1200.00,
-    data: new Date('2023-04-05')
-  },
-  {
-    id: '7',
-    tipo: 'receita',
-    categoria: 'Serviço',
-    descricao: 'OS #126 - Reparo no sistema elétrico',
-    valor: 380.00,
-    data: new Date('2023-04-07')
-  }
-];
-
-// Resumo financeiro
-const calcularResumo = () => {
-  const receitas = mockTransacoes
-    .filter(t => t.tipo === 'receita')
-    .reduce((acc, t) => acc + t.valor, 0);
-  
-  const despesas = mockTransacoes
-    .filter(t => t.tipo === 'despesa')
-    .reduce((acc, t) => acc + t.valor, 0);
-  
-  return {
-    receitas,
-    despesas,
-    saldo: receitas - despesas
-  };
-};
-
-// Formatar valor em reais
-const formatarReais = (valor: number) => {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL'
-  }).format(valor);
-};
+import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 // Schema de transação
 const transacaoFormSchema = z.object({
-  tipo: z.enum(['receita', 'despesa']),
+  tipo: z.enum(['income', 'expense']),
   categoria: z.string().min(1, { message: 'Selecione uma categoria' }),
   descricao: z.string().min(3, { message: 'A descrição deve ter pelo menos 3 caracteres' }),
   valor: z.string().min(1, { message: 'Informe o valor' }),
   data: z.string().min(1, { message: 'Selecione uma data' })
 });
 
+// Interface para transações
+interface Transaction {
+  id: string;
+  type: 'income' | 'expense';
+  category: string;
+  description: string | null;
+  amount: number;
+  date: string;
+  created_at: string;
+}
+
 // Categorias
 const categoriasPorTipo = {
-  receita: ['Serviço', 'Venda de Peças', 'Outros'],
-  despesa: ['Fornecedor', 'Funcionários', 'Aluguel', 'Contas', 'Impostos', 'Outros']
+  income: ['Serviço', 'Venda de Peças', 'Outros'],
+  expense: ['Fornecedor', 'Funcionários', 'Aluguel', 'Contas', 'Impostos', 'Outros']
 };
 
 const FinanceiroPage = () => {
-  const resumo = calcularResumo();
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filtroTipo, setFiltroTipo] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [periodo, setPeriodo] = useState('mes');
   
   const form = useForm<z.infer<typeof transacaoFormSchema>>({
     resolver: zodResolver(transacaoFormSchema),
     defaultValues: {
-      tipo: 'receita',
+      tipo: 'income',
       categoria: '',
       descricao: '',
       valor: '',
@@ -182,39 +110,158 @@ const FinanceiroPage = () => {
     }
   });
 
-  // Filtrar transações
+  // Fetch transactions when component loads
+  useEffect(() => {
+    fetchTransactions();
+  }, []);
+
+  // Fetch transactions from Supabase
+  const fetchTransactions = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('financial_transactions')
+        .select('*')
+        .order('date', { ascending: false });
+      
+      if (error) {
+        throw error;
+      }
+
+      setTransactions(data || []);
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível carregar as transações',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Calculate financial summary
+  const calcularResumo = () => {
+    const periodoFiltrado = filtrarTransacoesPorPeriodo(transactions, periodo);
+    
+    const receitas = periodoFiltrado
+      .filter(t => t.type === 'income')
+      .reduce((acc, t) => acc + t.amount, 0);
+    
+    const despesas = periodoFiltrado
+      .filter(t => t.type === 'expense')
+      .reduce((acc, t) => acc + t.amount, 0);
+    
+    return {
+      receitas,
+      despesas,
+      saldo: receitas - despesas
+    };
+  };
+
+  const resumo = calcularResumo();
+
+  // Filter transactions by period
+  const filtrarTransacoesPorPeriodo = (transacoes: Transaction[], periodo: string) => {
+    const hoje = new Date();
+    const inicioHoje = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+    
+    return transacoes.filter(transacao => {
+      const dataTransacao = new Date(transacao.date);
+      
+      switch (periodo) {
+        case 'hoje':
+          return dataTransacao >= inicioHoje;
+        case 'semana': {
+          const inicioSemana = new Date(hoje);
+          inicioSemana.setDate(hoje.getDate() - hoje.getDay());
+          inicioSemana.setHours(0, 0, 0, 0);
+          return dataTransacao >= inicioSemana;
+        }
+        case 'mes': {
+          const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+          return dataTransacao >= inicioMes;
+        }
+        case 'trimestre': {
+          const inicioTrimestre = new Date(hoje.getFullYear(), Math.floor(hoje.getMonth() / 3) * 3, 1);
+          return dataTransacao >= inicioTrimestre;
+        }
+        case 'ano': {
+          const inicioAno = new Date(hoje.getFullYear(), 0, 1);
+          return dataTransacao >= inicioAno;
+        }
+        default:
+          return true;
+      }
+    });
+  };
+
+  // Filter by type
   const transacoesFiltradas = filtroTipo 
-    ? mockTransacoes.filter(t => t.tipo === filtroTipo)
-    : mockTransacoes;
+    ? transactions.filter(t => t.type === filtroTipo)
+    : transactions;
+  
+  // Filter by period
+  const transacoesPorPeriodo = filtrarTransacoesPorPeriodo(transacoesFiltradas, periodo);
   
   // Ordenar por data (mais recente primeiro)
-  const transacoesOrdenadas = [...transacoesFiltradas].sort((a, b) => 
-    b.data.getTime() - a.data.getTime()
-  );
+  const transacoesOrdenadas = [...transacoesPorPeriodo];
 
-  // Adicionar nova transação
-  const onSubmit = (data: z.infer<typeof transacaoFormSchema>) => {
-    const valorNumerico = parseFloat(data.valor.replace(',', '.'));
-    
-    if (isNaN(valorNumerico)) {
-      toast.error('Valor inválido');
-      return;
+  // Add new transaction
+  const onSubmit = async (data: z.infer<typeof transacaoFormSchema>) => {
+    try {
+      const valorNumerico = parseFloat(data.valor.replace(',', '.'));
+      
+      if (isNaN(valorNumerico)) {
+        toast({
+          title: 'Erro',
+          description: 'Valor inválido',
+          variant: 'destructive'
+        });
+        return;
+      }
+      
+      const novaTransacao = {
+        type: data.tipo,
+        category: data.categoria,
+        description: data.descricao,
+        amount: valorNumerico,
+        date: data.data
+      };
+      
+      const { error } = await supabase
+        .from('financial_transactions')
+        .insert([novaTransacao]);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: 'Sucesso',
+        description: `${data.tipo === 'income' ? 'Receita' : 'Despesa'} adicionada com sucesso!`
+      });
+      
+      setDialogOpen(false);
+      form.reset();
+      fetchTransactions();
+    } catch (error) {
+      console.error('Error adding transaction:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível adicionar a transação',
+        variant: 'destructive'
+      });
     }
-    
-    // Aqui seria a lógica para adicionar a transação
-    const novaTransacao = {
-      id: generateUniqueId(),
-      tipo: data.tipo,
-      categoria: data.categoria,
-      descricao: data.descricao,
-      valor: valorNumerico,
-      data: new Date(data.data)
-    };
-    
-    console.log('Nova transação:', novaTransacao);
-    toast.success(`${data.tipo === 'receita' ? 'Receita' : 'Despesa'} adicionada com sucesso!`);
-    setDialogOpen(false);
-    form.reset();
+  };
+
+  // Format currency in BRL
+  const formatarReais = (valor: number) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(valor);
   };
 
   return (
@@ -247,17 +294,17 @@ const FinanceiroPage = () => {
                         <FormControl>
                           <div className="flex gap-4">
                             <div 
-                              className={`flex-1 flex items-center gap-2 p-2 border rounded-md cursor-pointer hover:bg-muted/30 ${field.value === 'receita' ? 'bg-primary/10 border-primary' : ''}`}
-                              onClick={() => field.onChange('receita')}
+                              className={`flex-1 flex items-center gap-2 p-2 border rounded-md cursor-pointer hover:bg-muted/30 ${field.value === 'income' ? 'bg-primary/10 border-primary' : ''}`}
+                              onClick={() => field.onChange('income')}
                             >
-                              <ArrowUpCircle className={`h-5 w-5 ${field.value === 'receita' ? 'text-primary' : 'text-muted-foreground'}`} />
+                              <ArrowUpCircle className={`h-5 w-5 ${field.value === 'income' ? 'text-primary' : 'text-muted-foreground'}`} />
                               <span>Receita</span>
                             </div>
                             <div 
-                              className={`flex-1 flex items-center gap-2 p-2 border rounded-md cursor-pointer hover:bg-muted/30 ${field.value === 'despesa' ? 'bg-destructive/10 border-destructive' : ''}`}
-                              onClick={() => field.onChange('despesa')}
+                              className={`flex-1 flex items-center gap-2 p-2 border rounded-md cursor-pointer hover:bg-muted/30 ${field.value === 'expense' ? 'bg-destructive/10 border-destructive' : ''}`}
+                              onClick={() => field.onChange('expense')}
                             >
-                              <ArrowDownCircle className={`h-5 w-5 ${field.value === 'despesa' ? 'text-destructive' : 'text-muted-foreground'}`} />
+                              <ArrowDownCircle className={`h-5 w-5 ${field.value === 'expense' ? 'text-destructive' : 'text-muted-foreground'}`} />
                               <span>Despesa</span>
                             </div>
                           </div>
@@ -359,7 +406,8 @@ const FinanceiroPage = () => {
           <CardContent>
             <div className="text-2xl font-bold text-green-500">{formatarReais(resumo.receitas)}</div>
             <p className="text-xs text-muted-foreground">
-              +15% em relação ao mês anterior
+              {periodo === 'mes' ? 'Neste mês' : periodo === 'semana' ? 'Nesta semana' : periodo === 'hoje' ? 'Hoje' : 
+                periodo === 'trimestre' ? 'Neste trimestre' : 'Neste ano'}
             </p>
           </CardContent>
         </Card>
@@ -373,7 +421,8 @@ const FinanceiroPage = () => {
           <CardContent>
             <div className="text-2xl font-bold text-destructive">{formatarReais(resumo.despesas)}</div>
             <p className="text-xs text-muted-foreground">
-              +8% em relação ao mês anterior
+              {periodo === 'mes' ? 'Neste mês' : periodo === 'semana' ? 'Nesta semana' : periodo === 'hoje' ? 'Hoje' : 
+                periodo === 'trimestre' ? 'Neste trimestre' : 'Neste ano'}
             </p>
           </CardContent>
         </Card>
@@ -389,7 +438,8 @@ const FinanceiroPage = () => {
               {formatarReais(resumo.saldo)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {resumo.saldo >= 0 ? '+22% em relação ao mês anterior' : '-10% em relação ao mês anterior'}
+              {periodo === 'mes' ? 'Neste mês' : periodo === 'semana' ? 'Nesta semana' : periodo === 'hoje' ? 'Hoje' : 
+                periodo === 'trimestre' ? 'Neste trimestre' : 'Neste ano'}
             </p>
           </CardContent>
         </Card>
@@ -425,14 +475,14 @@ const FinanceiroPage = () => {
                       Todas
                     </Button>
                     <Button 
-                      variant={filtroTipo === 'receita' ? "default" : "outline"}
-                      onClick={() => setFiltroTipo('receita')}
+                      variant={filtroTipo === 'income' ? "default" : "outline"}
+                      onClick={() => setFiltroTipo('income')}
                     >
                       <ArrowUpCircle className="h-4 w-4 mr-1 text-green-500" /> Receitas
                     </Button>
                     <Button 
-                      variant={filtroTipo === 'despesa' ? "default" : "outline"}
-                      onClick={() => setFiltroTipo('despesa')}
+                      variant={filtroTipo === 'expense' ? "default" : "outline"}
+                      onClick={() => setFiltroTipo('expense')}
                     >
                       <ArrowDownCircle className="h-4 w-4 mr-1 text-destructive" /> Despesas
                     </Button>
@@ -440,7 +490,10 @@ const FinanceiroPage = () => {
                   
                   <div className="flex items-center space-x-2">
                     <span className="text-sm text-muted-foreground">Período:</span>
-                    <Select defaultValue="mes">
+                    <Select 
+                      defaultValue={periodo}
+                      onValueChange={setPeriodo}
+                    >
                       <SelectTrigger className="w-[180px]">
                         <SelectValue placeholder="Selecione o período" />
                       </SelectTrigger>
@@ -455,47 +508,53 @@ const FinanceiroPage = () => {
                   </div>
                 </div>
                 
-                <div className="rounded-md border overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[100px]">Data</TableHead>
-                        <TableHead>Descrição</TableHead>
-                        <TableHead>Categoria</TableHead>
-                        <TableHead className="text-right">Valor</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {transacoesOrdenadas.map(transacao => (
-                        <TableRow key={transacao.id} className="hover-scale">
-                          <TableCell className="font-medium">
-                            {format(transacao.data, 'dd/MM/yyyy', { locale: ptBR })}
-                          </TableCell>
-                          <TableCell>{transacao.descricao}</TableCell>
-                          <TableCell>
-                            <span className="px-2 py-1 text-xs rounded-full bg-muted/50">
-                              {transacao.categoria}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <span className={`font-medium ${transacao.tipo === 'receita' ? 'text-green-500' : 'text-destructive'}`}>
-                              {transacao.tipo === 'despesa' ? '- ' : '+ '}
-                              {formatarReais(transacao.valor)}
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      
-                      {transacoesOrdenadas.length === 0 && (
+                {loading ? (
+                  <div className="flex justify-center items-center py-10">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="rounded-md border overflow-hidden">
+                    <Table>
+                      <TableHeader>
                         <TableRow>
-                          <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
-                            Nenhuma transação encontrada para o filtro selecionado
-                          </TableCell>
+                          <TableHead className="w-[100px]">Data</TableHead>
+                          <TableHead>Descrição</TableHead>
+                          <TableHead>Categoria</TableHead>
+                          <TableHead className="text-right">Valor</TableHead>
                         </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
+                      </TableHeader>
+                      <TableBody>
+                        {transacoesOrdenadas.length > 0 ? (
+                          transacoesOrdenadas.map(transacao => (
+                            <TableRow key={transacao.id} className="hover-scale">
+                              <TableCell className="font-medium">
+                                {format(new Date(transacao.date), 'dd/MM/yyyy', { locale: ptBR })}
+                              </TableCell>
+                              <TableCell>{transacao.description || '-'}</TableCell>
+                              <TableCell>
+                                <span className="px-2 py-1 text-xs rounded-full bg-muted/50">
+                                  {transacao.category}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className={`font-medium ${transacao.type === 'income' ? 'text-green-500' : 'text-destructive'}`}>
+                                  {transacao.type === 'expense' ? '- ' : '+ '}
+                                  {formatarReais(transacao.amount)}
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                              Nenhuma transação encontrada para o filtro selecionado
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
               </div>
             </TabsContent>
             

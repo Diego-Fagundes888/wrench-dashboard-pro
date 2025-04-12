@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Card, 
   CardContent, 
@@ -36,83 +36,44 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
-  DialogTitle,
-  DialogFooter
+  DialogTitle
 } from "@/components/ui/dialog";
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { toast } from 'sonner';
+import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
-// Mock data para ordens de serviço
-const mockOrdens = [
-  {
-    id: '1',
-    cliente: 'João Silva',
-    veiculo: 'Honda Civic 2020',
-    placa: 'ABC-1234',
-    data: new Date('2023-04-10'),
-    servico: 'Troca de Óleo',
-    valor: 120.5,
-    status: 'Concluído'
-  },
-  {
-    id: '2',
-    cliente: 'Maria Oliveira',
-    veiculo: 'Toyota Corolla 2018',
-    placa: 'DEF-5678',
-    data: new Date('2023-04-09'),
-    servico: 'Revisão Completa',
-    valor: 350.0,
-    status: 'Concluído'
-  },
-  {
-    id: '3',
-    cliente: 'Carlos Pereira',
-    veiculo: 'Volkswagen Gol 2015',
-    placa: 'GHI-9012',
-    data: new Date('2023-04-08'),
-    servico: 'Alinhamento e Balanceamento',
-    valor: 150.0,
-    status: 'Concluído'
-  },
-  {
-    id: '4',
-    cliente: 'Ana Souza',
-    veiculo: 'Fiat Uno 2017',
-    placa: 'JKL-3456',
-    data: new Date('2023-04-07'),
-    servico: 'Troca de Pastilhas de Freio',
-    valor: 280.0,
-    status: 'Concluído'
-  },
-  {
-    id: '5',
-    cliente: 'Roberto Alves',
-    veiculo: 'Chevrolet Onix 2019',
-    placa: 'MNO-7890',
-    data: new Date('2023-04-06'),
-    servico: 'Reparo no Sistema de Arrefecimento',
-    valor: 420.0,
-    status: 'Cancelado'
-  }
-];
+// Interface para serviços
+interface ServiceOrder {
+  id: string;
+  client_name: string;
+  vehicle_model: string;
+  vehicle_plate: string;
+  created_at: string;
+  service_type: string;
+  total_cost: number;
+  status: string;
+  number: number;
+}
 
 // Interface para detalhes da ordem
 interface DetalhesOrdem {
   id: string;
-  cliente: string;
-  telefone?: string;
-  veiculo: string;
-  placa: string;
-  ano?: string;
-  servico: string;
-  descricao?: string;
-  pecas?: Array<{nome: string, quantidade: number, preco: number}>;
-  valorPecas?: number;
-  valorMaoDeObra?: number;
-  valorTotal: number;
-  data: Date;
+  number: number;
+  client_name: string;
+  client_phone?: string;
+  vehicle_model: string;
+  vehicle_plate: string;
+  vehicle_year?: string;
+  service_type: string;
+  description?: string;
+  parts?: Array<{id: string, name: string, quantity: number, price: number, subtotal: number}>;
+  labor_cost: number;
+  parts_cost: number;
+  total_cost: number;
+  created_at: string;
   status: string;
 }
 
@@ -123,51 +84,176 @@ const HistoricoPage = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogDeleteOpen, setDialogDeleteOpen] = useState(false);
   const [ordemSelecionada, setOrdemSelecionada] = useState<string | null>(null);
+  const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dataInicial, setDataInicial] = useState('');
+  const [dataFinal, setDataFinal] = useState('');
+
+  // Carregar ordens de serviço
+  useEffect(() => {
+    fetchServiceOrders();
+  }, []);
+
+  const fetchServiceOrders = async () => {
+    try {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from('service_orders')
+        .select(`
+          id,
+          number,
+          service_type,
+          total_cost,
+          status,
+          created_at,
+          clients!inner(name),
+          vehicles!inner(model, plate)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      const formattedOrders: ServiceOrder[] = data.map(order => ({
+        id: order.id,
+        number: order.number,
+        client_name: order.clients.name,
+        vehicle_model: order.vehicles.model,
+        vehicle_plate: order.vehicles.plate,
+        created_at: order.created_at,
+        service_type: order.service_type,
+        total_cost: order.total_cost,
+        status: order.status
+      }));
+
+      setServiceOrders(formattedOrders);
+    } catch (error) {
+      console.error('Error fetching service orders:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível carregar as ordens de serviço',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Filtrar ordens
-  const ordensFiltradas = mockOrdens.filter(ordem => {
-    if (!filtro) return true;
-    
-    const termo = filtro.toLowerCase();
-    if (tipoFiltro === 'cliente') {
-      return ordem.cliente.toLowerCase().includes(termo);
-    } else if (tipoFiltro === 'veiculo') {
-      return ordem.veiculo.toLowerCase().includes(termo);
-    } else if (tipoFiltro === 'placa') {
-      return ordem.placa.toLowerCase().includes(termo);
+  const ordensFiltradas = serviceOrders.filter(ordem => {
+    // Filtro por texto
+    let matchesTextFilter = true;
+    if (filtro) {
+      const termo = filtro.toLowerCase();
+      if (tipoFiltro === 'cliente') {
+        matchesTextFilter = ordem.client_name.toLowerCase().includes(termo);
+      } else if (tipoFiltro === 'veiculo') {
+        matchesTextFilter = ordem.vehicle_model.toLowerCase().includes(termo);
+      } else if (tipoFiltro === 'placa') {
+        matchesTextFilter = ordem.vehicle_plate.toLowerCase().includes(termo);
+      }
     }
-    return true;
+
+    // Filtro por data
+    let matchesDateFilter = true;
+    if (dataInicial || dataFinal) {
+      const orderDate = new Date(ordem.created_at);
+      
+      if (dataInicial) {
+        const initialDate = new Date(dataInicial);
+        initialDate.setHours(0, 0, 0, 0);
+        if (orderDate < initialDate) {
+          matchesDateFilter = false;
+        }
+      }
+      
+      if (dataFinal) {
+        const finalDate = new Date(dataFinal);
+        finalDate.setHours(23, 59, 59, 999);
+        if (orderDate > finalDate) {
+          matchesDateFilter = false;
+        }
+      }
+    }
+
+    return matchesTextFilter && matchesDateFilter;
   });
 
   // Ver detalhes da OS
-  const verDetalhes = (id: string) => {
-    const ordem = mockOrdens.find(os => os.id === id);
-    if (!ordem) return;
-    
-    // Simular detalhes completos
-    const detalhes: DetalhesOrdem = {
-      ...ordem,
-      telefone: '(11) 99999-8888',
-      ano: '2020',
-      descricao: 'Troca de óleo com filtro e verificação geral.',
-      pecas: [
-        { nome: 'Óleo Motor 5W30', quantidade: 4, preco: 35.90 },
-        { nome: 'Filtro de Óleo', quantidade: 1, preco: 25.50 },
-        { nome: 'Filtro de Ar', quantidade: 1, preco: 45.00 }
-      ],
-      valorPecas: 168.10,
-      valorMaoDeObra: 50.00,
-      valorTotal: ordem.valor
-    };
-    
-    setOrdemDetalhada(detalhes);
-    setDialogOpen(true);
+  const verDetalhes = async (id: string) => {
+    try {
+      // Get basic order info
+      const { data: orderData, error: orderError } = await supabase
+        .from('service_orders')
+        .select(`
+          *,
+          clients!inner(*),
+          vehicles!inner(*)
+        `)
+        .eq('id', id)
+        .single();
+
+      if (orderError) throw orderError;
+
+      // Get parts for this order
+      const { data: partsData, error: partsError } = await supabase
+        .from('service_order_parts')
+        .select(`
+          *,
+          parts!inner(name)
+        `)
+        .eq('service_order_id', id);
+
+      if (partsError) throw partsError;
+
+      // Format parts data
+      const formattedParts = partsData.map((part) => ({
+        id: part.id,
+        name: part.parts.name,
+        quantity: part.quantity,
+        price: part.price,
+        subtotal: part.subtotal
+      }));
+
+      // Create detailed order object
+      const detalhes: DetalhesOrdem = {
+        id: orderData.id,
+        number: orderData.number,
+        client_name: orderData.clients.name,
+        client_phone: orderData.clients.phone || '-',
+        vehicle_model: orderData.vehicles.model,
+        vehicle_plate: orderData.vehicles.plate,
+        vehicle_year: orderData.vehicles.year || '-',
+        service_type: orderData.service_type,
+        description: orderData.description || '-',
+        parts: formattedParts,
+        labor_cost: orderData.labor_cost,
+        parts_cost: orderData.parts_cost,
+        total_cost: orderData.total_cost,
+        created_at: orderData.created_at,
+        status: orderData.status
+      };
+      
+      setOrdemDetalhada(detalhes);
+      setDialogOpen(true);
+    } catch (error) {
+      console.error('Error fetching order details:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível carregar os detalhes da OS',
+        variant: 'destructive'
+      });
+    }
   };
 
   // Editar OS
   const editarOS = (id: string) => {
-    toast.info('Redirecionando para edição da OS...');
-    // Aqui iria redirecionar para tela de edição
+    toast({
+      title: 'Em breve',
+      description: 'Funcionalidade de edição será implementada em breve',
+    });
   };
 
   // Excluir OS
@@ -176,13 +262,79 @@ const HistoricoPage = () => {
     setDialogDeleteOpen(true);
   };
 
-  const excluirOS = () => {
+  const excluirOS = async () => {
     if (!ordemSelecionada) return;
     
-    // Aqui seria a lógica real para excluir
-    toast.success('OS excluída com sucesso!');
-    setDialogDeleteOpen(false);
-    setOrdemSelecionada(null);
+    try {
+      // Delete parts from service order first (foreign key constraint)
+      const { error: partsError } = await supabase
+        .from('service_order_parts')
+        .delete()
+        .eq('service_order_id', ordemSelecionada);
+
+      if (partsError) throw partsError;
+
+      // Delete financial transactions associated with this order
+      const { error: transactionsError } = await supabase
+        .from('financial_transactions')
+        .delete()
+        .eq('service_order_id', ordemSelecionada);
+
+      if (transactionsError) throw transactionsError;
+
+      // Delete the service order
+      const { error } = await supabase
+        .from('service_orders')
+        .delete()
+        .eq('id', ordemSelecionada);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Sucesso',
+        description: 'OS excluída com sucesso!',
+      });
+      
+      // Refresh the list
+      fetchServiceOrders();
+    } catch (error) {
+      console.error('Error deleting service order:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível excluir a OS',
+        variant: 'destructive'
+      });
+    } finally {
+      setDialogDeleteOpen(false);
+      setOrdemSelecionada(null);
+    }
+  };
+
+  // Limpar filtros
+  const limparFiltros = () => {
+    setFiltro('');
+    setTipoFiltro('cliente');
+    setDataInicial('');
+    setDataFinal('');
+  };
+
+  // Formato de moeda
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value);
+  };
+
+  // Status label
+  const getStatusLabel = (status: string) => {
+    const statusMap: Record<string, string> = {
+      'open': 'Em aberto',
+      'in_progress': 'Em andamento',
+      'completed': 'Concluído',
+      'canceled': 'Cancelado'
+    };
+    return statusMap[status] || status;
   };
 
   return (
@@ -229,13 +381,28 @@ const HistoricoPage = () => {
             <div className="flex items-center space-x-2">
               <Calendar className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">Data Inicial:</span>
-              <Input type="date" className="max-w-[180px]" />
+              <Input 
+                type="date" 
+                className="max-w-[180px]" 
+                value={dataInicial}
+                onChange={e => setDataInicial(e.target.value)}
+              />
               <span className="text-sm text-muted-foreground">até</span>
-              <Input type="date" className="max-w-[180px]" />
+              <Input 
+                type="date" 
+                className="max-w-[180px]" 
+                value={dataFinal}
+                onChange={e => setDataFinal(e.target.value)}
+              />
             </div>
 
             <div className="flex justify-end">
-              <Button variant="outline">Limpar Filtros</Button>
+              <Button 
+                variant="outline"
+                onClick={limparFiltros}
+              >
+                Limpar Filtros
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -249,82 +416,91 @@ const HistoricoPage = () => {
           </span>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>OS #</TableHead>
-                  <TableHead>Data</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Veículo</TableHead>
-                  <TableHead>Placa</TableHead>
-                  <TableHead>Serviço</TableHead>
-                  <TableHead>Valor</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {ordensFiltradas.map(ordem => (
-                  <TableRow key={ordem.id} className="hover-scale">
-                    <TableCell className="font-medium">{ordem.id}</TableCell>
-                    <TableCell>
-                      {format(ordem.data, 'dd/MM/yyyy', { locale: ptBR })}
-                    </TableCell>
-                    <TableCell>{ordem.cliente}</TableCell>
-                    <TableCell>{ordem.veiculo}</TableCell>
-                    <TableCell>{ordem.placa}</TableCell>
-                    <TableCell>{ordem.servico}</TableCell>
-                    <TableCell>R$ {ordem.valor.toFixed(2)}</TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        ordem.status === 'Concluído' ? 
-                          'bg-green-100 text-green-800' : 
-                          'bg-red-100 text-red-800'
-                      }`}>
-                        {ordem.status}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex space-x-1">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => verDetalhes(ordem.id)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => editarOS(ordem.id)}
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => confirmarExclusao(ordem.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {ordensFiltradas.length === 0 && (
+          {loading ? (
+            <div className="flex justify-center items-center h-40">
+              <p>Carregando ordens de serviço...</p>
+            </div>
+          ) : (
+            <div className="rounded-md border overflow-hidden">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-10">
-                      <div className="flex flex-col items-center justify-center text-muted-foreground">
-                        <FileText className="h-10 w-10 mb-2" />
-                        <p>Nenhuma ordem de serviço encontrada</p>
-                      </div>
-                    </TableCell>
+                    <TableHead>OS #</TableHead>
+                    <TableHead>Data</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Veículo</TableHead>
+                    <TableHead>Placa</TableHead>
+                    <TableHead>Serviço</TableHead>
+                    <TableHead>Valor</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Ações</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {ordensFiltradas.length > 0 ? (
+                    ordensFiltradas.map(ordem => (
+                      <TableRow key={ordem.id} className="hover-scale">
+                        <TableCell className="font-medium">{ordem.number}</TableCell>
+                        <TableCell>
+                          {format(new Date(ordem.created_at), 'dd/MM/yyyy', { locale: ptBR })}
+                        </TableCell>
+                        <TableCell>{ordem.client_name}</TableCell>
+                        <TableCell>{ordem.vehicle_model}</TableCell>
+                        <TableCell>{ordem.vehicle_plate}</TableCell>
+                        <TableCell>{ordem.service_type}</TableCell>
+                        <TableCell>{formatCurrency(ordem.total_cost)}</TableCell>
+                        <TableCell>
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            ordem.status === 'completed' ? 
+                              'bg-green-100 text-green-800' : 
+                              ordem.status === 'canceled' ?
+                                'bg-red-100 text-red-800' :
+                                'bg-blue-100 text-blue-800'
+                          }`}>
+                            {getStatusLabel(ordem.status)}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex space-x-1">
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => verDetalhes(ordem.id)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => editarOS(ordem.id)}
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => confirmarExclusao(ordem.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-10">
+                        <div className="flex flex-col items-center justify-center text-muted-foreground">
+                          <FileText className="h-10 w-10 mb-2" />
+                          <p>Nenhuma ordem de serviço encontrada</p>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -332,9 +508,9 @@ const HistoricoPage = () => {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Detalhes da Ordem de Serviço #{ordemDetalhada?.id}</DialogTitle>
+            <DialogTitle>Detalhes da Ordem de Serviço #{ordemDetalhada?.number}</DialogTitle>
             <DialogDescription>
-              {ordemDetalhada && format(ordemDetalhada.data, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+              {ordemDetalhada && format(new Date(ordemDetalhada.created_at), "EEEE, dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
             </DialogDescription>
           </DialogHeader>
           
@@ -343,25 +519,31 @@ const HistoricoPage = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <h3 className="text-lg font-semibold mb-2">Cliente</h3>
-                  <p className="text-sm">Nome: <span className="font-medium">{ordemDetalhada.cliente}</span></p>
-                  <p className="text-sm">Telefone: <span className="font-medium">{ordemDetalhada.telefone}</span></p>
+                  <p className="text-sm">Nome: <span className="font-medium">{ordemDetalhada.client_name}</span></p>
+                  <p className="text-sm">Telefone: <span className="font-medium">{ordemDetalhada.client_phone}</span></p>
                 </div>
                 
                 <div>
                   <h3 className="text-lg font-semibold mb-2">Veículo</h3>
-                  <p className="text-sm">Modelo: <span className="font-medium">{ordemDetalhada.veiculo}</span></p>
-                  <p className="text-sm">Placa: <span className="font-medium">{ordemDetalhada.placa}</span></p>
-                  <p className="text-sm">Ano: <span className="font-medium">{ordemDetalhada.ano}</span></p>
+                  <p className="text-sm">Modelo: <span className="font-medium">{ordemDetalhada.vehicle_model}</span></p>
+                  <p className="text-sm">Placa: <span className="font-medium">{ordemDetalhada.vehicle_plate}</span></p>
+                  <p className="text-sm">Ano: <span className="font-medium">{ordemDetalhada.vehicle_year}</span></p>
                 </div>
               </div>
               
               <div>
                 <h3 className="text-lg font-semibold mb-2">Serviço</h3>
-                <p className="text-sm">Tipo: <span className="font-medium">{ordemDetalhada.servico}</span></p>
-                <p className="text-sm">Descrição: <span className="font-medium">{ordemDetalhada.descricao}</span></p>
+                <p className="text-sm">Tipo: <span className="font-medium">{ordemDetalhada.service_type}</span></p>
+                <p className="text-sm">Descrição: <span className="font-medium">{ordemDetalhada.description}</span></p>
+                <p className="text-sm">Status: <span className={`font-medium ${
+                  ordemDetalhada.status === 'completed' ? 'text-green-600' : 
+                  ordemDetalhada.status === 'canceled' ? 'text-red-600' : 'text-blue-600'
+                }`}>
+                  {getStatusLabel(ordemDetalhada.status)}
+                </span></p>
               </div>
               
-              {ordemDetalhada.pecas && ordemDetalhada.pecas.length > 0 && (
+              {ordemDetalhada.parts && ordemDetalhada.parts.length > 0 && (
                 <div>
                   <h3 className="text-lg font-semibold mb-2">Peças Utilizadas</h3>
                   <Table>
@@ -374,12 +556,12 @@ const HistoricoPage = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {ordemDetalhada.pecas.map((peca, index) => (
-                        <TableRow key={index}>
-                          <TableCell>{peca.nome}</TableCell>
-                          <TableCell>{peca.quantidade}</TableCell>
-                          <TableCell>R$ {peca.preco.toFixed(2)}</TableCell>
-                          <TableCell>R$ {(peca.quantidade * peca.preco).toFixed(2)}</TableCell>
+                      {ordemDetalhada.parts.map((peca) => (
+                        <TableRow key={peca.id}>
+                          <TableCell>{peca.name}</TableCell>
+                          <TableCell>{peca.quantity}</TableCell>
+                          <TableCell>{formatCurrency(peca.price)}</TableCell>
+                          <TableCell>{formatCurrency(peca.subtotal)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -388,9 +570,9 @@ const HistoricoPage = () => {
               )}
               
               <div className="flex flex-col items-end space-y-1 pt-4">
-                <p className="text-sm">Valor das Peças: <span className="font-medium">R$ {ordemDetalhada.valorPecas?.toFixed(2)}</span></p>
-                <p className="text-sm">Valor da Mão de Obra: <span className="font-medium">R$ {ordemDetalhada.valorMaoDeObra?.toFixed(2)}</span></p>
-                <p className="text-base font-bold">Valor Total: <span>R$ {ordemDetalhada.valorTotal.toFixed(2)}</span></p>
+                <p className="text-sm">Valor das Peças: <span className="font-medium">{formatCurrency(ordemDetalhada.parts_cost)}</span></p>
+                <p className="text-sm">Valor da Mão de Obra: <span className="font-medium">{formatCurrency(ordemDetalhada.labor_cost)}</span></p>
+                <p className="text-base font-bold">Valor Total: <span>{formatCurrency(ordemDetalhada.total_cost)}</span></p>
               </div>
             </div>
           )}
