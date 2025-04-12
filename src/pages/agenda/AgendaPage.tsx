@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { format, startOfWeek, addDays, isToday, parseISO, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -18,7 +17,7 @@ import { cn } from '@/lib/utils';
 import AgendaForm from '@/components/agenda/AgendaForm';
 import AppointmentList from '@/components/agenda/AppointmentList';
 import { generateUniqueId } from '@/lib/utils';
-import { toast } from '@/components/ui/sonner';
+import { toast } from 'sonner';
 
 interface Appointment {
   id: string;
@@ -32,7 +31,6 @@ interface Appointment {
   notes: string;
 }
 
-// Mock data para demonstração
 const mockAppointments: Appointment[] = [
   {
     id: '1',
@@ -69,7 +67,6 @@ const mockAppointments: Appointment[] = [
   }
 ];
 
-// Função para agrupar dias da semana
 const getWeekDays = (date: Date) => {
   const start = startOfWeek(date, { weekStartsOn: 0 });
   return Array.from({ length: 7 }).map((_, index) => addDays(start, index));
@@ -83,7 +80,6 @@ const AgendaPage = () => {
   
   const weekDays = getWeekDays(selectedDate);
   
-  // Filtrar agendamentos para a data selecionada
   const filteredAppointments = appointments.filter(app => 
     isSameDay(new Date(app.date), selectedDate)
   );
@@ -95,13 +91,11 @@ const AgendaPage = () => {
   
   const handleSaveAppointment = (appointment: any) => {
     if (editingId) {
-      // Editar um agendamento existente
       setAppointments(appointments.map(app => 
         app.id === editingId ? { ...appointment, id: editingId } : app
       ));
       toast.success("Agendamento atualizado com sucesso!");
     } else {
-      // Adicionar novo agendamento
       const newAppointment = {
         ...appointment,
         id: generateUniqueId()
