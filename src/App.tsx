@@ -8,6 +8,12 @@ import Layout from "./components/Layout";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import AgendaPage from "./pages/agenda/AgendaPage";
+import DashboardPage from "./pages/dashboard/DashboardPage";
+import CriarOSPage from "./pages/ordens-servico/CriarOSPage";
+import HistoricoPage from "./pages/historico/HistoricoPage";
+import FinanceiroPage from "./pages/financeiro/FinanceiroPage";
+import PecasPage from "./pages/pecas/PecasPage";
+import ConfiguracoesPage from "./pages/configuracoes/ConfiguracoesPage";
 
 const queryClient = new QueryClient();
 
@@ -19,13 +25,13 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Layout><Index /></Layout>} />
+          <Route path="/dashboard" element={<Layout><DashboardPage /></Layout>} />
           <Route path="/agenda" element={<Layout><AgendaPage /></Layout>} />
-          {/* Adicionar outras rotas aqui quando implementadas */}
-          <Route path="/criar-os" element={<Layout><div className="p-4">Página de Criação de OS em desenvolvimento</div></Layout>} />
-          <Route path="/historico" element={<Layout><div className="p-4">Página de Histórico em desenvolvimento</div></Layout>} />
-          <Route path="/financeiro" element={<Layout><div className="p-4">Página Financeira em desenvolvimento</div></Layout>} />
-          <Route path="/pecas" element={<Layout><div className="p-4">Página de Peças em desenvolvimento</div></Layout>} />
-          <Route path="/configuracoes" element={<Layout><div className="p-4">Configurações em desenvolvimento</div></Layout>} />
+          <Route path="/criar-os" element={<Layout><CriarOSPage /></Layout>} />
+          <Route path="/historico" element={<Layout><HistoricoPage /></Layout>} />
+          <Route path="/financeiro" element={<Layout><FinanceiroPage /></Layout>} />
+          <Route path="/pecas" element={<Layout><PecasPage /></Layout>} />
+          <Route path="/configuracoes" element={<Layout><ConfiguracoesPage /></Layout>} />
           {/* Rota de fallback para páginas não encontradas */}
           <Route path="*" element={<NotFound />} />
         </Routes>

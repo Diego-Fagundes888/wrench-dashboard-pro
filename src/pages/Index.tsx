@@ -2,9 +2,9 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 
-// Redirecionar para a página de agenda
+// Redirecionar para a página de dashboard
 const Index = () => {
-  return <Navigate to="/agenda" replace />;
+  return <Navigate to="/dashboard" replace />;
 };
 
 export default Index;
