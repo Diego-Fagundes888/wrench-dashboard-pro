@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   Card, 
@@ -149,27 +148,6 @@ const FinanceiroPage = () => {
     }
   };
 
-  // Calculate financial summary
-  const calcularResumo = () => {
-    const periodoFiltrado = filtrarTransacoesPorPeriodo(transactions, periodo);
-    
-    const receitas = periodoFiltrado
-      .filter(t => t.type === 'income')
-      .reduce((acc, t) => acc + t.amount, 0);
-    
-    const despesas = periodoFiltrado
-      .filter(t => t.type === 'expense')
-      .reduce((acc, t) => acc + t.amount, 0);
-    
-    return {
-      receitas,
-      despesas,
-      saldo: receitas - despesas
-    };
-  };
-
-  const resumo = calcularResumo();
-
   // Filter transactions by period
   const filtrarTransacoesPorPeriodo = (transacoes: Transaction[], periodo: string) => {
     const hoje = new Date();
@@ -204,6 +182,27 @@ const FinanceiroPage = () => {
       }
     });
   };
+
+  // Calculate financial summary
+  const calcularResumo = () => {
+    const periodoFiltrado = filtrarTransacoesPorPeriodo(transactions, periodo);
+    
+    const receitas = periodoFiltrado
+      .filter(t => t.type === 'income')
+      .reduce((acc, t) => acc + t.amount, 0);
+    
+    const despesas = periodoFiltrado
+      .filter(t => t.type === 'expense')
+      .reduce((acc, t) => acc + t.amount, 0);
+    
+    return {
+      receitas,
+      despesas,
+      saldo: receitas - despesas
+    };
+  };
+
+  const resumo = calcularResumo();
 
   // Filter by type
   const transacoesFiltradas = filtroTipo 
