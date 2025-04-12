@@ -167,7 +167,7 @@ const DashboardPage = () => {
     }
 
     // Calculate today's income
-    const todayIncome = incomeData?.reduce((sum, item) => sum + parseFloat(item.amount), 0) || 0;
+    const todayIncome = incomeData?.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0) || 0;
 
     // Get today's expenses
     const { data: expenseData, error: expenseError } = await supabase
@@ -181,7 +181,7 @@ const DashboardPage = () => {
     }
 
     // Calculate today's expenses
-    const todayExpense = expenseData?.reduce((sum, item) => sum + parseFloat(item.amount), 0) || 0;
+    const todayExpense = expenseData?.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0) || 0;
 
     // Calculate balance
     const balance = todayIncome - todayExpense;

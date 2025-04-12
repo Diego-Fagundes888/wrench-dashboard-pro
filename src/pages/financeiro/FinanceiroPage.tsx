@@ -29,7 +29,8 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle
+  DialogTitle,
+  DialogTrigger
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -84,6 +85,7 @@ interface Transaction {
   amount: number;
   date: string;
   created_at: string;
+  service_order_id: string | null;
 }
 
 // Categorias
@@ -128,7 +130,13 @@ const FinanceiroPage = () => {
         throw error;
       }
 
-      setTransactions(data || []);
+      // Convert string type to 'income' or 'expense' type
+      const typedData = data?.map(item => ({
+        ...item,
+        type: item.type === 'income' ? 'income' : 'expense'
+      } as Transaction)) || [];
+
+      setTransactions(typedData);
     } catch (error) {
       console.error('Error fetching transactions:', error);
       toast({
