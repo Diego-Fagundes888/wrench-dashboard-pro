@@ -207,6 +207,27 @@ const DashboardPage = () => {
     try {
       setFinalizingService(serviceId);
       
+      // Check if the service has already been finalized and has a financial transaction
+      const { data: existingTransactions, error: checkError } = await supabase
+        .from('financial_transactions')
+        .select('id')
+        .eq('service_order_id', serviceId);
+        
+      if (checkError) {
+        throw checkError;
+      }
+      
+      // If there's already a transaction for this service, don't create another one
+      if (existingTransactions && existingTransactions.length > 0) {
+        toast({
+          title: 'Serviço já finalizado',
+          description: 'Este serviço já possui uma transação financeira registrada.',
+          variant: 'destructive'
+        });
+        setFinalizingService(null);
+        return;
+      }
+      
       // Update service status to completed and set completed_at date
       const { error: updateError } = await supabase
         .from('service_orders')
@@ -220,7 +241,7 @@ const DashboardPage = () => {
         throw updateError;
       }
       
-      // Create financial transaction record
+      // Create financial transaction record with the exact service cost
       const today = new Date().toISOString().split('T')[0];
       
       const { error: financialError } = await supabase
@@ -252,7 +273,7 @@ const DashboardPage = () => {
       
       toast({
         title: 'Serviço finalizado',
-        description: 'O serviço foi finalizado e adicionado ao faturamento',
+        description: `O serviço foi finalizado e adicionado ao faturamento: ${formatCurrency(totalCost)}`,
         variant: 'default'
       });
     } catch (error) {
