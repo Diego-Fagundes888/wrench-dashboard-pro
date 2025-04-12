@@ -10,7 +10,8 @@ import {
   CheckCircle,
   Clock,
   AlertCircle,
-  ChevronRight
+  ChevronRight,
+  CheckSquare
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from "@/integrations/supabase/client";
@@ -27,6 +28,7 @@ type ServiceOrderSummary = {
   service_type: string;
   status: string;
   created_at: string;
+  total_cost: number;
 };
 
 type FinancialSummary = {
@@ -59,6 +61,7 @@ const DashboardPage = () => {
     income_percent_change: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [finalizingService, setFinalizingService] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDashboardData();
@@ -96,6 +99,7 @@ const DashboardPage = () => {
         service_type,
         status,
         created_at,
+        total_cost,
         clients!inner(name),
         vehicles!inner(model)
       `)
@@ -114,6 +118,7 @@ const DashboardPage = () => {
       service_type: item.service_type,
       status: item.status,
       created_at: item.created_at,
+      total_cost: parseFloat(String(item.total_cost))
     })) || []);
   };
 
@@ -167,7 +172,7 @@ const DashboardPage = () => {
     }
 
     // Calculate today's income
-    const todayIncome = incomeData?.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0) || 0;
+    const todayIncome = incomeData?.reduce((sum, item) => sum + parseFloat(String(item.amount)), 0) || 0;
 
     // Get today's expenses
     const { data: expenseData, error: expenseError } = await supabase
@@ -181,7 +186,7 @@ const DashboardPage = () => {
     }
 
     // Calculate today's expenses
-    const todayExpense = expenseData?.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0) || 0;
+    const todayExpense = expenseData?.reduce((sum, item) => sum + parseFloat(String(item.amount)), 0) || 0;
 
     // Calculate balance
     const balance = todayIncome - todayExpense;
@@ -195,6 +200,71 @@ const DashboardPage = () => {
       balance: balance,
       income_percent_change: incomePercentChange,
     });
+  };
+
+  // Function to finalize a service
+  const finalizeService = async (serviceId: string, totalCost: number) => {
+    try {
+      setFinalizingService(serviceId);
+      
+      // Update service status to completed and set completed_at date
+      const { error: updateError } = await supabase
+        .from('service_orders')
+        .update({ 
+          status: 'completed', 
+          completed_at: new Date().toISOString() 
+        })
+        .eq('id', serviceId);
+      
+      if (updateError) {
+        throw updateError;
+      }
+      
+      // Create financial transaction record
+      const today = new Date().toISOString().split('T')[0];
+      
+      const { error: financialError } = await supabase
+        .from('financial_transactions')
+        .insert([{
+          type: 'income',
+          category: 'Serviço',
+          description: 'Serviço finalizado via dashboard',
+          amount: totalCost,
+          date: today,
+          service_order_id: serviceId
+        }]);
+      
+      if (financialError) {
+        throw financialError;
+      }
+      
+      // Update local state to reflect changes
+      setTodayServices(prevServices => 
+        prevServices.map(service => 
+          service.id === serviceId 
+            ? { ...service, status: 'completed' } 
+            : service
+        )
+      );
+      
+      // Refresh financial data
+      await fetchFinancialSummary();
+      
+      toast({
+        title: 'Serviço finalizado',
+        description: 'O serviço foi finalizado e adicionado ao faturamento',
+        variant: 'default'
+      });
+    } catch (error) {
+      console.error('Error finalizing service:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível finalizar o serviço',
+        variant: 'destructive'
+      });
+    } finally {
+      setFinalizingService(null);
+    }
   };
 
   // Format currency in BRL
@@ -292,12 +362,31 @@ const DashboardPage = () => {
                           <div className="text-xs text-muted-foreground">{service.service_type}</div>
                         </div>
                       </div>
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-3">
                         <div className="flex items-center">
                           {statusIcons[service.status] || <AlertCircle className="h-5 w-5 text-blue-500" />}
                           <span className="ml-2 text-sm">{statusLabels[service.status] || service.status}</span>
                         </div>
                         <span className="text-sm text-muted-foreground">{formatTime(service.created_at)}</span>
+                        
+                        {service.status !== 'completed' && (
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="ml-2 flex items-center gap-1 text-green-600 border-green-600 hover:bg-green-50 hover:text-green-700"
+                            onClick={() => finalizeService(service.id, service.total_cost)}
+                            disabled={finalizingService === service.id}
+                          >
+                            {finalizingService === service.id ? (
+                              <>Finalizando...</>
+                            ) : (
+                              <>
+                                <CheckSquare className="h-4 w-4" />
+                                Finalizar
+                              </>
+                            )}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
